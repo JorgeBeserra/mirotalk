@@ -10,6 +10,17 @@ const newCallTitle = document.getElementById('newCallTitle');
 const newCallRoomTitle = document.getElementById('newCallRoomTitle');
 const newCallRoomDescription = document.getElementById('newCallRoomDescription');
 const loginTitle = document.getElementById('loginTitle');
+const loginHeading = document.getElementById('loginHeading');
+const loginDescription = document.getElementById('loginDescription');
+const loginButtonLabel = document.getElementById('loginButtonLabel');
+const joinRoomTitle = document.getElementById('joinRoomTitle');
+const joinRoomButtonLabel = document.getElementById('joinRoomButtonLabel');
+const waitingRoomTitle = document.getElementById('waitingRoomTitle');
+const waitingRoomHeading = document.getElementById('waitingRoomHeading');
+const waitingRoomDescription = document.getElementById('waitingRoomDescription');
+const waitingRoomStatus = document.getElementById('waitingStatus');
+const waitingRoomHostLink = document.getElementById('waitingRoomHostLink');
+const waitingRoomLoginLink = document.getElementById('waitingRoomLoginLink');
 const privacyPolicyTitle = document.getElementById('privacyPolicyTitle');
 const stunTurnTitle = document.getElementById('stunTurnTitle');
 const clientTitle = document.getElementById('clientTitle');
@@ -21,7 +32,9 @@ const appleTouchIcon = document.getElementById('appleTouchIcon');
 const appTitle = document.getElementById('appTitle');
 const appDescription = document.getElementById('appDescription');
 const appJoinDescription = document.getElementById('appJoinDescription');
+const customizeRoomBrandName = document.getElementById('customizeRoomBrandName');
 const joinRoomBtn = document.getElementById('joinRoomButton');
+const customizeRoomBtn = document.getElementById('customizeRoomButton');
 const appJoinLastRoom = document.getElementById('appJoinLastRoom');
 
 const topSponsors = document.getElementById('topSponsors');
@@ -31,8 +44,11 @@ const teams = document.getElementById('teams');
 const tryEasier = document.getElementById('tryEasier');
 const poweredBy = document.getElementById('poweredBy');
 const sponsors = document.getElementById('sponsors');
+const pastSponsors = document.getElementById('pastSponsors');
 const advertisers = document.getElementById('advertisers');
+const supportUs = document.getElementById('supportUs');
 const footer = document.getElementById('footer');
+const navGithubLink = document.getElementById('navGithubLink');
 //...
 
 // Brand customizations...
@@ -40,42 +56,63 @@ const footer = document.getElementById('footer');
 let brand = {
     app: {
         language: 'en',
+        translationMode: 'google',
         name: 'MiroTalk',
         title: 'MiroTalk<br />Free browser based Real-time video calls.<br />Simple, Secure, Fast.',
         description:
             'Start your next video call with a single click. No download, plug-in, or login is required. Just get straight to talking, messaging, and sharing your screen.',
         joinDescription: 'Pick a room name.<br />How about this one?',
         joinButtonLabel: 'JOIN ROOM',
+        customizeRoomButtonLabel: 'CUSTOMIZE ROOM',
         joinLastLabel: 'Your recent room:',
     },
     site: {
         shortcutIcon: '../images/logo.svg',
         appleTouchIcon: '../images/logo.svg',
-        landingTitle: 'MiroTalk a Free Secure Video Calls, Chat & Screen Sharing.',
+        landingTitle: 'MiroTalk P2P - Open Source WebRTC Video Calls & Meetings',
         newCallTitle: 'MiroTalk a Free Secure Video Calls, Chat & Screen Sharing.',
         newCallRoomTitle: 'Pick name. <br />Share URL. <br />Start conference.',
         newCallRoomDescription:
             "Each room has its disposable URL. Just pick a room name and share your custom URL. It's that easy.",
         loginTitle: 'MiroTalk - Host Protected login required.',
+        loginHeading: 'Welcome back',
+        loginDescription: 'Enter your credentials to continue.',
+        loginButtonLabel: 'Login',
+        joinRoomTitle: 'Pick name.<br />Share URL.<br />Start conference.',
+        joinRoomButtonLabel: 'JOIN ROOM',
         clientTitle: 'MiroTalk WebRTC Video call, Chat Room & Screen Sharing.',
         privacyPolicyTitle: 'MiroTalk - privacy and policy.',
         stunTurnTitle: 'Test Stun/Turn Servers.',
         notFoundTitle: 'MiroTalk - 404 Page not found.',
+        waitingRoomTitle: 'MiroTalk - Waiting for host to start the meeting',
+        waitingRoomHeading: 'Waiting for host...',
+        waitingRoomDescription:
+            "The meeting hasn't started yet.<br />You'll join automatically when the host opens the room.",
+        waitingRoomStatus: 'Checking room status...',
+        waitingRoomReady: 'Room is ready! Joining...',
+        waitingRoomWaiting: 'Waiting for host to start the meeting...',
+        waitingRoomHostLink: 'Are you the host?',
+        waitingRoomLoginLink: 'Login here',
+        waitingRoomElapsedJust: 'Just started waiting',
+        waitingRoomElapsedMinutes: 'Waiting for {minutes}',
+        waitingRoomSongUrl: '',
     },
     html: {
         topSponsors: true,
         features: true,
-        browsers: true,
         teams: true, // please keep me always true ;)
         tryEasier: true,
         poweredBy: true,
         sponsors: true,
+        pastSponsors: true,
         advertisers: true,
+        supportUs: true,
         footer: true,
+        version: true,
     },
     about: {
         imageUrl: '../images/mirotalk-logo.gif',
-        title: 'WebRTC P2P v1.5.77',
+        title: 'WebRTC P2P v2.2.42',
         html: `
             <button 
                 id="support-button" 
@@ -107,10 +144,10 @@ let brand = {
         enabled: false,
         roomId: 'support-room',
         theme: 'dark',
-        widgetState: 'minimized',
+        widgetState: 'closed',
         widgetType: 'support',
         supportWidget: {
-            position: 'top-right',
+            position: 'bottom-right',
             expertImages: [
                 'https://photo.cloudron.pocketsolution.net/uploads/original/95/7d/a5f7f7a2c89a5fee7affda5f013c.jpeg',
             ],
@@ -145,6 +182,11 @@ async function initBrand() {
     handleBrand();
 
     handleWidget();
+
+    // Signal to i18n.js (and others) that brand config is resolved.
+    // The flag covers listeners attached after the event fired (e.g. cached brandData).
+    window.brandReady = true;
+    document.dispatchEvent(new Event('brand:ready'));
 }
 
 /**
@@ -182,8 +224,30 @@ async function getBrand() {
  * @param {object} data
  */
 function setBrand(data) {
-    brand = data;
+    brand = mergeBrand(brand, data);
     console.log('Set Brand done');
+}
+
+/**
+ * Deep merge two objects
+ * @param {object} target target object
+ * @param {object} source source object
+ * @returns {object} merged object
+ */
+function mergeBrand(target, source) {
+    if (typeof target !== 'object' || target === null) return source;
+    if (typeof source !== 'object' || source === null) return source;
+    const output = Array.isArray(target) ? target.slice() : { ...target };
+    for (const key of Object.keys(source)) {
+        const srcVal = source[key];
+        const tgtVal = output[key];
+        if (srcVal && typeof srcVal === 'object' && !Array.isArray(srcVal)) {
+            output[key] = mergeBrand(tgtVal || {}, srcVal);
+        } else {
+            output[key] = srcVal;
+        }
+    }
+    return output;
 }
 
 /**
@@ -198,11 +262,28 @@ function handleBrand() {
         newCallRoomDescription.textContent = brand.site.newCallRoomDescription;
 
     if (loginTitle && brand.site?.loginTitle) loginTitle.textContent = brand.site.loginTitle;
+    if (loginHeading && brand.site?.loginHeading) loginHeading.textContent = brand.site.loginHeading;
+    if (loginDescription && brand.site?.loginDescription) loginDescription.textContent = brand.site.loginDescription;
+    if (loginButtonLabel && brand.site?.loginButtonLabel) loginButtonLabel.textContent = brand.site.loginButtonLabel;
+    if (joinRoomTitle && brand.site?.joinRoomTitle) joinRoomTitle.innerHTML = brand.site.joinRoomTitle;
+    if (joinRoomButtonLabel && brand.site?.joinRoomButtonLabel)
+        joinRoomButtonLabel.textContent = brand.site.joinRoomButtonLabel;
     if (privacyPolicyTitle && brand.site?.privacyPolicyTitle)
         privacyPolicyTitle.textContent = brand.site.privacyPolicyTitle;
     if (stunTurnTitle && brand.site?.stunTurnTitle) stunTurnTitle.textContent = brand.site.stunTurnTitle;
     if (clientTitle && brand.site?.clientTitle) clientTitle.textContent = brand.site.clientTitle;
     if (notFoundTitle && brand.site?.notFoundTitle) notFoundTitle.textContent = brand.site.notFoundTitle;
+    if (waitingRoomTitle && brand.site?.waitingRoomTitle) waitingRoomTitle.textContent = brand.site.waitingRoomTitle;
+    if (waitingRoomHeading && brand.site?.waitingRoomHeading)
+        waitingRoomHeading.textContent = brand.site.waitingRoomHeading;
+    if (waitingRoomDescription && brand.site?.waitingRoomDescription)
+        waitingRoomDescription.innerHTML = brand.site.waitingRoomDescription;
+    if (waitingRoomStatus && brand.site?.waitingRoomStatus)
+        waitingRoomStatus.textContent = brand.site.waitingRoomStatus;
+    if (waitingRoomHostLink && brand.site?.waitingRoomHostLink)
+        waitingRoomHostLink.textContent = brand.site.waitingRoomHostLink;
+    if (waitingRoomLoginLink && brand.site?.waitingRoomLoginLink)
+        waitingRoomLoginLink.textContent = brand.site.waitingRoomLoginLink;
 
     if (shortcutIcon && brand.site?.shortcutIcon) shortcutIcon.href = brand.site.shortcutIcon;
     if (appleTouchIcon && brand.site?.appleTouchIcon) appleTouchIcon.href = brand.site.appleTouchIcon;
@@ -210,18 +291,29 @@ function handleBrand() {
     if (appTitle && brand.app?.title) appTitle.innerHTML = brand.app.title;
     if (appDescription && brand.app?.description) appDescription.textContent = brand.app.description;
     if (appJoinDescription && brand.app?.joinDescription) appJoinDescription.innerHTML = brand.app.joinDescription;
+    if (customizeRoomBrandName && brand.app?.name) customizeRoomBrandName.textContent = brand.app.name;
     if (joinRoomBtn && brand.app?.joinButtonLabel) joinRoomBtn.innerText = brand.app.joinButtonLabel;
+    if (customizeRoomBtn && brand.app?.customizeRoomButtonLabel)
+        customizeRoomBtn.innerText = brand.app.customizeRoomButtonLabel;
     if (appJoinLastRoom && brand.app?.joinLastLabel) appJoinLastRoom.innerText = brand.app.joinLastLabel;
 
-    !brand.html.topSponsors && elementDisplay(topSponsors, false);
-    !brand.html.features && elementDisplay(features, false);
-    !brand.html.browsers && elementDisplay(browsers, false);
-    !brand.html.teams && elementDisplay(teams, false);
-    !brand.html.tryEasier && elementDisplay(tryEasier, false);
-    !brand.html.poweredBy && elementDisplay(poweredBy, false);
-    !brand.html.sponsors && elementDisplay(sponsors, false);
-    !brand.html.advertisers && elementDisplay(advertisers, false);
-    !brand.html.footer && elementDisplay(footer, false);
+    // helper to toggle multiple elements
+    const displayElements = (list) => list.forEach(([el, show]) => elementDisplay(el, !!show));
+
+    displayElements([
+        [topSponsors, brand.html?.topSponsors],
+        [features, brand.html?.features],
+        [teams, brand.html?.teams],
+        [tryEasier, brand.html?.tryEasier],
+        [poweredBy, brand.html?.poweredBy],
+        [sponsors, brand.html?.sponsors],
+        [pastSponsors, brand.html?.pastSponsors],
+        [advertisers, brand.html?.advertisers],
+        [supportUs, brand.html?.supportUs],
+        [footer, brand.html?.footer],
+    ]);
+
+    if (!brand.html?.footer) elementDisplay(navGithubLink, false);
 }
 
 // WIDGET customize

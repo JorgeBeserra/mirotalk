@@ -1,5 +1,5 @@
 # Use a lightweight Node.js image https://hub.docker.com/_/node 
-FROM node:22-alpine
+FROM node:24-alpine
 
 # Set working directory
 WORKDIR /src
@@ -11,20 +11,25 @@ ENV NODE_ENV="production"
 COPY package*.json ./
 COPY .env.template ./.env
 
-# Rename config.template.js to config.js
-COPY ./app/src/config.template.js ./app/src/config.js
+# Install necessary system packages
+RUN apk add --no-cache bash vim
 
-# Install necessary system packages and dependencies
-RUN apk add --no-cache \
-    bash \
-    vim \
-    && npm ci --only=production --silent \
+# Install Node.js dependencies (fail the build immediately if install fails,
+# so a broken arm64 image is never published)
+RUN npm ci --omit=dev --silent \
     && npm cache clean --force \
     && rm -rf /tmp/* /var/tmp/* /usr/share/doc/*
 
-# Copy the application code
-COPY app app
-COPY public public
+# Copy the application code, already owned by the runtime user
+COPY --chown=node:node app app
+COPY --chown=node:node public public
 
-# Set default command to start the application
-CMD ["npm", "start"]
+# Rename config.template.js to config.js
+COPY --chown=node:node ./app/src/config.template.js ./app/src/config.js
+
+# Run as the non-root "node" user (uid/gid 1000) shipped with the base image
+USER node
+
+# Default command: run node directly (not via npm) so SIGTERM from `docker stop`
+# reaches the app and triggers the graceful shutdown (clients get notified and auto-reconnect)
+CMD ["node", "app/src/server.js"]

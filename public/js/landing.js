@@ -306,3 +306,69 @@
                 });
             }
     })());
+
+(function () {
+    'use strict';
+    const shareBtn = document.getElementById('supportShareBtn');
+
+    if (!shareBtn) return;
+
+    const shareData = {
+        title: 'MiroTalk P2P',
+        text: 'Free, open-source WebRTC video calls in your browser. Check out MiroTalk!',
+        url: window.location.origin,
+    };
+
+    const originalLabel = shareBtn.innerHTML;
+    let resetTimer;
+
+    const setLabel = (label) => {
+        shareBtn.innerHTML = `<i class="fas fa-check"></i> ${label}`;
+        clearTimeout(resetTimer);
+        resetTimer = setTimeout(() => (shareBtn.innerHTML = originalLabel), 2000);
+    };
+
+    shareBtn.addEventListener('click', async (event) => {
+        event.preventDefault();
+        try {
+            if (navigator.share) {
+                await navigator.share(shareData);
+            } else if (navigator.clipboard) {
+                await navigator.clipboard.writeText(shareData.url);
+                setLabel('Link copied');
+            } else {
+                window.open(
+                    `https://x.com/intent/tweet?text=${encodeURIComponent(shareData.text)}&url=${encodeURIComponent(shareData.url)}`,
+                    '_blank',
+                    'noopener'
+                );
+            }
+        } catch (err) {
+            if (err && err.name !== 'AbortError') console.warn('Share failed', err);
+        }
+    });
+})();
+
+(function () {
+    'use strict';
+    const section = document.getElementById('pastSponsors');
+    const toggle = document.getElementById('pastSponsorsToggle');
+
+    if (!section || !toggle) return;
+
+    const setExpanded = (expanded) => {
+        section.classList.toggle('is-open', expanded);
+        toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    };
+
+    toggle.addEventListener('click', (event) => {
+        event.preventDefault();
+        setExpanded(!section.classList.contains('is-open'));
+    });
+
+    document.addEventListener('click', (event) => {
+        if (!section.contains(event.target)) {
+            setExpanded(false);
+        }
+    });
+})();

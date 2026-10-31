@@ -4,11 +4,13 @@ console.log(window.location);
 
 const usernameInput = document.getElementById('username');
 const passwordInput = document.getElementById('password');
+const togglePassword = document.getElementById('togglePassword');
 const loginBtn = document.getElementById('loginButton');
 const joinRoomForm = document.getElementById('joinRoomForm');
 const roomNameInput = document.getElementById('roomName');
 const joinSelectRoomButton = document.getElementById('joinSelectRoomButton');
 const randomRoomButton = document.getElementById('randomRoomButton');
+const shareRoomButton = document.getElementById('shareRoomButton');
 
 usernameInput.onkeyup = (e) => {
     if (e.keyCode === 13) {
@@ -26,6 +28,22 @@ passwordInput.onkeyup = (e) => {
 loginBtn.onclick = (e) => {
     login();
 };
+
+togglePassword.onclick = () => {
+    const isPassword = passwordInput.type === 'password';
+    passwordInput.type = isPassword ? 'text' : 'password';
+    togglePassword.classList.toggle('fa-eye', !isPassword);
+    togglePassword.classList.toggle('fa-eye-slash', isPassword);
+};
+
+// From the /login response (HOST_USERS displayname / allowed_rooms); the server enforces both on join
+let loginDisplayName = '';
+let loginAllowedRooms = null;
+
+function isRoomAllowed(room) {
+    if (!Array.isArray(loginAllowedRooms)) return true;
+    return loginAllowedRooms.includes('*') || loginAllowedRooms.includes(room);
+}
 
 function login() {
     const username = filterXSS(document.getElementById('username').value);
@@ -52,6 +70,14 @@ function login() {
                 // Store in session
                 const token = response.data.message;
                 window.sessionStorage.peer_token = token;
+                loginDisplayName = response.data.displayname || username;
+                loginAllowedRooms = Array.isArray(response.data.allowedRooms) ? response.data.allowedRooms : null;
+
+                const targetRoom = room || (roomPath && roomPath !== 'login' ? roomPath : '');
+                if (targetRoom && !isRoomAllowed(targetRoom)) {
+                    showLoginError('Room not allowed for this user');
+                    return;
+                }
 
                 if (room) {
                     window.location.href = '/join/' + window.location.search;
@@ -73,22 +99,81 @@ function login() {
             })
             .catch(function (error) {
                 console.error(error);
-                popup('warning', 'Invalid credentials. Please try again.');
+                const status = error.response ? error.response.status : 0;
+                const serverMsg = error.response && error.response.data ? error.response.data.message : '';
+                if (status === 429 && serverMsg) {
+                    showLoginError(serverMsg);
+                } else {
+                    showLoginError('Invalid credentials. Please try again.');
+                }
             });
         return;
     }
     if (!username && !password) {
-        popup('warning', 'Username and Password required');
+        highlightEmpty(usernameInput);
+        highlightEmpty(passwordInput);
+        showLoginError('Username and Password required');
         return;
     }
     if (!username) {
-        popup('warning', 'Username required');
+        highlightEmpty(usernameInput);
+        showLoginError('Username required');
         return;
     }
     if (!password) {
-        popup('warning', 'Password required');
+        highlightEmpty(passwordInput);
+        showLoginError('Password required');
         return;
     }
+}
+
+function highlightEmpty(input) {
+    if (!input) return;
+    input.classList.add('input-error');
+    input.addEventListener(
+        'input',
+        function () {
+            input.classList.remove('input-error');
+            hideLoginError();
+        },
+        { once: true }
+    );
+    document.addEventListener(
+        'mousedown',
+        function (e) {
+            if (e.target !== input) {
+                input.classList.remove('input-error');
+            }
+        },
+        { once: true }
+    );
+}
+
+function showLoginError(msg) {
+    let el = document.getElementById('loginError');
+    if (!el) {
+        el = document.createElement('p');
+        el.id = 'loginError';
+        el.className = 'login-error';
+        const loginBtn = document.getElementById('loginButton');
+        if (loginBtn) loginBtn.parentNode.insertBefore(el, loginBtn);
+    }
+    el.textContent = translateLoginText(msg);
+    el.style.display = 'block';
+}
+
+// Translate a UI string via the native i18n layer when active (falls back to English).
+function translateLoginText(text) {
+    try {
+        return window.i18n && typeof window.i18n.t === 'function' ? window.i18n.t(text, 'labels') : text;
+    } catch (e) {
+        return text;
+    }
+}
+
+function hideLoginError() {
+    const el = document.getElementById('loginError');
+    if (el) el.style.display = 'none';
 }
 
 function showJoinRoomForm() {
@@ -98,9 +183,14 @@ function showJoinRoomForm() {
 
     const doJoin = () => {
         const room = roomNameInput ? filterXSS(roomNameInput.value.trim()) : '';
-        const name = filterXSS(document.getElementById('username').value).trim();
+        const name = filterXSS(loginDisplayName || document.getElementById('username').value).trim();
         if (!room) {
-            popup('warning', 'Room Name required');
+            highlightEmpty(roomNameInput);
+            return;
+        }
+        if (!isRoomAllowed(room)) {
+            highlightEmpty(roomNameInput);
+            popup('warning', translateLoginText('Room not allowed for this user'));
             return;
         }
         window.location.href =
@@ -125,6 +215,29 @@ function showJoinRoomForm() {
         randomRoomButton.onclick = (e) => {
             e.preventDefault();
             if (roomNameInput) roomNameInput.value = getUUID4();
+        };
+    }
+    if (shareRoomButton) {
+        shareRoomButton.onclick = (e) => {
+            e.preventDefault();
+            const room = roomNameInput ? filterXSS(roomNameInput.value.trim()) : '';
+            if (!room) {
+                highlightEmpty(roomNameInput);
+                return;
+            }
+            const shareUrl = window.location.origin + '/join/' + encodeURIComponent(room);
+            if (navigator.share) {
+                navigator.share({ title: 'MiroTalk Room', url: shareUrl }).catch(() => {});
+            } else {
+                navigator.clipboard
+                    .writeText(shareUrl)
+                    .then(() => {
+                        popup('success', 'Room link copied to clipboard');
+                    })
+                    .catch(() => {
+                        popup('error', 'Failed to copy link');
+                    });
+            }
         };
     }
     if (joinSelectRoomButton) {

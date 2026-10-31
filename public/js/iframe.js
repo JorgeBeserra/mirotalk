@@ -9,6 +9,7 @@ class IframeApi {
         chat: false,
         hide: false,
         notify: false,
+        duration: 'unlimited',
         width: '100vw',
         height: '100vh',
         token: null,
@@ -34,8 +35,23 @@ class IframeApi {
         const params = this.buildParams();
         const iframe = this.createIframe(params);
 
+        this.iframe = iframe;
+        this.iframeOrigin = new URL(iframe.src).origin;
+        this.handleMessage = this.handleMessage.bind(this);
+        window.addEventListener('message', this.handleMessage);
+
         this.clearParentNode();
         this.appendIframeToParentNode(iframe);
+    }
+
+    handleMessage(event) {
+        if (event.source !== this.iframe.contentWindow || event.origin !== this.iframeOrigin) return;
+        if (event.data?.type !== 'mirotalk:redirect' || typeof event.data.url !== 'string') return;
+
+        if (typeof event.data.id === 'string') {
+            event.source.postMessage({ type: 'mirotalk:redirect-ack', id: event.data.id }, event.origin);
+        }
+        window.location.href = event.data.url;
     }
 
     isValidParentNode() {
@@ -53,6 +69,7 @@ class IframeApi {
             chat: this.options.chat ? 1 : 0,
             hide: this.options.hide ? 1 : 0,
             notify: this.options.notify ? 1 : 0,
+            duration: this.options.duration || 'unlimited',
         });
 
         if (this.options.token) {

@@ -16,10 +16,16 @@ class LocalStorage {
         this.P2P_SETTINGS = {
             share_on_join: true,
             show_chat_on_msg: true,
+            transcript_show_on_msg: true,
+            transcript_send_to_all: true,
             speech_in_msg: false,
-            mic_noise_suppression: false,
+            pin_chat_by_default: false,
+            mic_noise_suppression: true, // Noise suppression using RNNoise
+            mic_noise_suppression_user_set: false, // user explicitly toggled it, so the server default no longer applies
+            speaker_volume: 100, // master output volume 0-100
             video_fps: 1, // default 30fps
             screen_fps: 1, // default 30fps
+            screen_quality: 0, // default native
             pitch_bar: true,
             sounds: true,
             keep_buttons_visible: false,
@@ -29,7 +35,12 @@ class LocalStorage {
             theme_color: '#000000', // custom theme color
             theme_custom: false, // keep custom theme
             buttons_bar: 0, // vertical
-            pin_grid: 0, // vertical
+            pin_grid: 0, // speaker left
+            participant_view: 'grid',
+            video_aspect_ratio: 0, // automatic based on participant count
+            screen_cam_layout: 'separate', // camera while screen sharing: separate | pip | split
+            peer_avatar: '', // persisted avatar URL
+            camera_background: { mode: 'off', image: null }, // last camera background (custom upload lives in IndexedDB)
         };
 
         this.DEVICES_COUNT = {

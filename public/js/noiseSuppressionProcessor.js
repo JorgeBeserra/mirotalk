@@ -3,28 +3,40 @@
 const RNNOISE_FRAME_SIZE = 480;
 const SHIFT_16_BIT_NR = 32768;
 
-// Handle WASM module initialization
+// Handle WASM module initialization (standalone wasm, no Emscripten JS glue or eval)
 class WasmModuleInitializer {
     constructor(messagePort) {
         this.messagePort = messagePort;
         this.Module = null;
     }
 
-    async initSyncModule(jsContent) {
+    async initModule(wasmBytes) {
         try {
-            if (!jsContent) throw new Error('Missing sync module JS content');
+            if (!wasmBytes) throw new Error('Missing RNNoise wasm binary');
 
-            const createFunction = new Function(jsContent + '; return createRNNWasmModuleSync;')();
-            this.Module = await createFunction();
+            // Synchronous compile: async WebAssembly APIs are unreliable inside some AudioWorklet scopes
+            const instance = new WebAssembly.Instance(new WebAssembly.Module(wasmBytes), {
+                env: { emscripten_notify_memory_growth() {} },
+            });
+            const exports = instance.exports;
+            exports._initialize?.();
 
-            if (this.Module.ready) {
-                await this.Module.ready;
-            }
-            this.messagePort.postMessage({ type: 'wasm-ready' });
+            let heapF32 = new Float32Array(exports.memory.buffer);
+            this.Module = {
+                _malloc: exports.malloc,
+                _free: exports.free,
+                _rnnoise_create: exports.rnnoise_create,
+                _rnnoise_destroy: exports.rnnoise_destroy,
+                _rnnoise_process_frame: exports.rnnoise_process_frame,
+                // Memory growth detaches the old buffer, so refresh the view when it changes
+                get HEAPF32() {
+                    if (heapF32.buffer !== exports.memory.buffer) heapF32 = new Float32Array(exports.memory.buffer);
+                    return heapF32;
+                },
+            };
             return this.Module;
         } catch (error) {
-            console.error('Sync module initialization error:', error);
-            this.messagePort.postMessage({ type: 'wasm-error', error: error.message });
+            console.error('WASM module initialization error:', error);
             throw error;
         }
     }
@@ -41,7 +53,12 @@ class RNNoiseContextManager {
         this.rnnoiseContext = null;
         this.wasmPcmInput = null;
         this.wasmPcmInputF32Index = null;
-        this.setupWasm();
+        try {
+            this.setupWasm();
+        } catch (error) {
+            this.destroy();
+            throw error;
+        }
     }
 
     setupWasm() {
@@ -49,7 +66,7 @@ class RNNoiseContextManager {
         this.wasmPcmInputF32Index = this.wasmPcmInput >> 2;
         if (!this.wasmPcmInput) throw new Error('Failed to allocate WASM buffer');
 
-        this.rnnoiseContext = this.module._rnnoise_create();
+        this.rnnoiseContext = this.module._rnnoise_create(0);
         if (!this.rnnoiseContext) throw new Error('Failed to create RNNoise context');
 
         console.log('WASM setup complete:', {
@@ -63,27 +80,20 @@ class RNNoiseContextManager {
         if (!this.rnnoiseContext || !this.module || !this.module.HEAPF32) return;
 
         try {
+            let heap = this.module.HEAPF32;
             for (let i = 0; i < RNNOISE_FRAME_SIZE; i++) {
-                this.module.HEAPF32[this.wasmPcmInputF32Index + i] = frameBuffer[i] * SHIFT_16_BIT_NR;
+                heap[this.wasmPcmInputF32Index + i] = frameBuffer[i] * SHIFT_16_BIT_NR;
             }
 
-            const vadScore = this.module._rnnoise_process_frame(
-                this.rnnoiseContext,
-                this.wasmPcmInput,
-                this.wasmPcmInput
-            );
+            this.module._rnnoise_process_frame(this.rnnoiseContext, this.wasmPcmInput, this.wasmPcmInput);
 
+            heap = this.module.HEAPF32;
             for (let i = 0; i < RNNOISE_FRAME_SIZE; i++) {
-                processedBuffer[i] = this.module.HEAPF32[this.wasmPcmInputF32Index + i] / SHIFT_16_BIT_NR;
+                processedBuffer[i] = heap[this.wasmPcmInputF32Index + i] / SHIFT_16_BIT_NR;
             }
-
-            messagePort.postMessage({
-                type: 'vad',
-                probability: vadScore,
-                isSpeech: vadScore > 0.5,
-            });
         } catch (error) {
             console.error('Frame processing failed:', error);
+            messagePort.postMessage({ type: 'wasm-error', error: error.message });
             for (let i = 0; i < RNNOISE_FRAME_SIZE; i++) {
                 processedBuffer[i] = frameBuffer[i];
             }
@@ -140,20 +150,6 @@ class AudioFrameBuffer {
     }
 }
 
-// Handle volume analysis
-class VolumeAnalyzer {
-    calculateVolume(input, output, messagePort) {
-        const originalVolume = Math.sqrt(input.reduce((sum, v) => sum + v * v, 0) / input.length);
-        const processedVolume = Math.sqrt(output.reduce((sum, v) => sum + v * v, 0) / output.length);
-
-        messagePort.postMessage({
-            type: 'volume',
-            original: originalVolume,
-            processed: processedVolume,
-        });
-    }
-}
-
 // Handle audio worklet processing
 class RNNoiseProcessor extends AudioWorkletProcessor {
     constructor() {
@@ -168,7 +164,6 @@ class RNNoiseProcessor extends AudioWorkletProcessor {
         this.wasmInitializer = new WasmModuleInitializer(this.port);
         this.contextManager = null;
         this.frameBuffer = new AudioFrameBuffer();
-        this.volumeAnalyzer = new VolumeAnalyzer();
 
         this.setupMessageHandler();
         this.port.postMessage({ type: 'request-wasm' });
@@ -176,19 +171,26 @@ class RNNoiseProcessor extends AudioWorkletProcessor {
 
     setupMessageHandler() {
         this.port.onmessage = async (event) => {
-            const { type, jsContent, enabled } = event.data;
+            if (this._destroyed) return;
+            const { type, wasmBytes, enabled } = event.data;
             switch (type) {
-                case 'sync-module':
+                case 'wasm-module':
                     try {
-                        const module = await this.wasmInitializer.initSyncModule(jsContent);
+                        const module = await this.wasmInitializer.initModule(wasmBytes);
+                        if (this._destroyed) return;
                         this.contextManager = new RNNoiseContextManager(module);
                         this.initialized = true;
+                        this.port.postMessage({ type: 'wasm-ready' });
                     } catch (error) {
-                        console.error('Failed to initialize sync module:', error);
+                        console.error('Failed to initialize RNNoise wasm:', error);
+                        if (!this._destroyed) this.port.postMessage({ type: 'wasm-error', error: error.message });
                     }
                     break;
                 case 'enable':
                     this.enabled = enabled;
+                    break;
+                case 'destroy':
+                    this.destroy();
                     break;
                 default:
                     console.warn('Unknown message type:', type);
@@ -198,6 +200,7 @@ class RNNoiseProcessor extends AudioWorkletProcessor {
     }
 
     process(inputs, outputs, parameters) {
+        if (this._destroyed) return false;
         const input = inputs[0]?.[0];
         const output = outputs[0]?.[0];
         if (!output) return true;
@@ -233,19 +236,19 @@ class RNNoiseProcessor extends AudioWorkletProcessor {
             output[i] = Number.isFinite(sample) ? sample : 0;
         }
 
-        this.volumeAnalyzer.calculateVolume(input, output, this.port);
         return true;
     }
 
     destroy() {
         if (this._destroyed) return;
+        this._destroyed = true;
+        this.initialized = false;
+        this.enabled = false;
 
         if (this.contextManager) {
             this.contextManager.destroy();
             this.contextManager = null;
         }
-
-        this._destroyed = true;
     }
 }
 

@@ -99,11 +99,13 @@ if (speechRecognition) {
         elemDisplay(speechRecognitionStart, false);
         elemDisplay(speechRecognitionStop, true, 'block');
         setColor(speechRecognitionIcon, 'lime');
-        !isPersistentMode ? userLog('toast', 'TSpeech recognition started') : (isPersistent = true);
+        !isPersistentMode ? userLog('toast', 'Speech recognition started') : (isPersistent = true);
     };
 
     // Detect the said words
     recognition.onresult = (e) => {
+        // Skip capturing while the microphone is off.
+        if (!myAudioStatus) return;
         let current = e.resultIndex;
         // Get a transcript of what was said.
         let transcript = e.results[current][0].transcript;
@@ -118,7 +120,7 @@ if (speechRecognition) {
             };
             // save also my speech to text
             handleSpeechTranscript(config);
-            sendToDataChannel(config);
+            if (transcriptSendToAll) sendToDataChannel(config);
         }
     };
 
@@ -171,7 +173,7 @@ function updateCountry() {
     for (let i = 1; i < list.length; i++) {
         recognitionDialect.options.add(new Option(list[i][1], list[i][0]));
     }
-    recognitionDialect.style.visibility = list[1].length == 1 ? 'hidden' : 'visible';
+    recognitionDialect.style.display = list[1].length == 1 ? 'none' : '';
 }
 
 /**
